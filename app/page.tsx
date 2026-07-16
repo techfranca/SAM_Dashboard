@@ -256,6 +256,13 @@ export default function Dashboard() {
           </table>
         </div>
 
+
+        {/* WEEKLY TABLE */}
+        <SectionTitle text="Análise por Semana" />
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 24, marginBottom: 40, overflowX: "auto" }}>
+          <WeeklyTable dailyData={dailyData} />
+        </div>
+
         <div style={{ padding: "24px 0", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)" }}>
           <span><strong style={{ color: "var(--text)" }}>Franca Marketing</strong> · Dashboard ao vivo</span>
           <span style={{ color: "rgba(255,255,255,0.2)" }}>Dados: Meta Ads Graph API</span>
@@ -318,6 +325,100 @@ function FooterStat({ label, value }: { label: string; value: string }) {
 
 function Card({ children }: { children: React.ReactNode }) {
   return <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>{children}</div>;
+}
+
+
+function WeeklyTable({ dailyData }: { dailyData: AdRow[] }) {
+  if (!dailyData.length) return <p style={{ fontSize: 13, color: "var(--muted)" }}>Sem dados</p>;
+
+  // Group by week (Mon-Sun)
+  const weeks: Record<string, AdRow[]> = {};
+  const sorted = [...dailyData].sort((a, b) => a.date_start.localeCompare(b.date_start));
+
+  sorted.forEach(d => {
+    const date = new Date(d.date_start + "T12:00:00");
+    const day = date.getDay();
+    const diff = day === 0 ? 6 : day - 1;
+    const monday = new Date(date);
+    monday.setDate(date.getDate() - diff);
+    const key = monday.toISOString().split("T")[0];
+    if (!weeks[key]) weeks[key] = [];
+    weeks[key].push(d);
+  });
+
+  const weekKeys = Object.keys(weeks).sort();
+
+  const weekStats = weekKeys.map(key => {
+    const rows = weeks[key];
+    const spend = rows.reduce((s, r) => s + Number(r.spend), 0);
+    const impressions = rows.reduce((s, r) => s + Number(r.impressions), 0);
+    const clicks = rows.reduce((s, r) => s + Number(r.clicks), 0);
+    const linkClicks = rows.reduce((s, r) => s + getAction(r.actions, "link_click"), 0);
+    const lpv = rows.reduce((s, r) => s + getAction(r.actions, "landing_page_view"), 0);
+    const checkouts = rows.reduce((s, r) => s + getAction(r.actions, "initiate_checkout"), 0);
+    const purchases = rows.reduce((s, r) => s + getAction(r.actions, "purchase"), 0);
+    const cr = linkClicks > 0 ? (lpv / linkClicks) * 100 : 0;
+    const convPage = lpv > 0 ? (checkouts / lpv) * 100 : 0;
+    const convCheckout = checkouts > 0 ? (purchases / checkouts) * 100 : 0;
+    const convFunnel = linkClicks > 0 ? (purchases / linkClicks) * 100 : 0;
+    const cpa = purchases > 0 ? spend / purchases : 0;
+    const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
+    const cpc = linkClicks > 0 ? spend / linkClicks : 0;
+    const cps = lpv > 0 ? spend / lpv : 0;
+
+    const monday = new Date(key + "T12:00:00");
+    const lastDay = new Date(rows[rows.length - 1].date_start + "T12:00:00");
+    const fmtD = (dt: Date) => dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    const label = fmtD(monday) + " a " + fmtD(lastDay);
+
+    return { label, spend, impressions, clicks, linkClicks, lpv, checkouts, purchases, cr, convPage, convCheckout, convFunnel, cpa, cpm, cpc, cps };
+  });
+
+  const metrics: { label: string; key: string; format: (v: number) => string; color?: (v: number) => string }[] = [
+    { label: "Investimento", key: "spend", format: fmtMoney },
+    { label: "CPM", key: "cpm", format: fmtMoney },
+    { label: "Cliques link", key: "linkClicks", format: v => v.toLocaleString("pt-BR") },
+    { label: "CPC", key: "cpc", format: fmtMoney },
+    { label: "Landing Page Views", key: "lpv", format: v => v.toLocaleString("pt-BR") },
+    { label: "Connect Rate", key: "cr", format: fmtPct, color: v => v < 80 ? "var(--orange)" : "var(--green)" },
+    { label: "Checkouts", key: "checkouts", format: v => v.toLocaleString("pt-BR") },
+    { label: "Vendas", key: "purchases", format: v => v.toLocaleString("pt-BR"), color: v => v > 0 ? "var(--green)" : "var(--muted)" },
+    { label: "CPA", key: "cpa", format: v => v > 0 ? fmtMoney(v) : "—", color: () => "var(--orange)" },
+    { label: "CPS (custo/sessão)", key: "cps", format: fmtMoney },
+    { label: "Conv. Página", key: "convPage", format: fmtPct },
+    { label: "Conv. Checkout", key: "convCheckout", format: fmtPct },
+    { label: "Conv. Funil", key: "convFunnel", format: fmtPct, color: v => v > 2.5 ? "var(--green)" : "var(--text)" },
+  ];
+
+  const colW = Math.max(120, 100);
+
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <thead>
+        <tr>
+          <th style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", textAlign: "left", padding: "0 8px 12px", borderBottom: "1px solid var(--border)", minWidth: 160 }}>Métrica</th>
+          {weekStats.map((w, i) => (
+            <th key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", textAlign: "right", padding: "0 8px 12px", borderBottom: "1px solid var(--border)", minWidth: colW }}>{w.label}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {metrics.map((m, mi) => (
+          <tr key={mi} style={{ borderBottom: "1px solid var(--border)" }}>
+            <td style={{ padding: "10px 8px", fontSize: 12, color: "var(--muted)", fontWeight: 500 }}>{m.label}</td>
+            {weekStats.map((w, wi) => {
+              const val = (w as Record<string, number>)[m.key];
+              return (
+                <td key={wi} style={{ padding: "10px 8px", fontSize: 12, fontWeight: 600, textAlign: "right", color: m.color ? m.color(val) : "var(--text)" }}>
+                  {m.format(val)}
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 function StatRow({ label, value, color }: { label: string; value: string; color?: string }) {
