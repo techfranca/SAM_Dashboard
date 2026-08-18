@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
   }
 
   const start = new Date(`${since}T00:00:00-03:00`).getTime();
-  const end = new Date(`${until}T23:59:59-03:00`).getTime();
+  const end = Math.min(new Date(`${until}T23:59:59-03:00`).getTime(), Date.now());
 
   try {
     const token = await getToken();
