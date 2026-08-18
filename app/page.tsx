@@ -472,7 +472,7 @@ function WeeklyTable({ dailyData }: { dailyData: AdRow[] }) {
           <tr key={mi} style={{ borderBottom: "1px solid var(--border)" }}>
             <td style={{ padding: "10px 8px", fontSize: 12, color: "var(--muted)", fontWeight: 500 }}>{m.label}</td>
             {weekStats.map((w, wi) => {
-              const val = (w as Record<string, number>)[m.key];
+              const val = (w as unknown as Record<string, number>)[m.key];
               return (
                 <td key={wi} style={{ padding: "10px 8px", fontSize: 12, fontWeight: 600, textAlign: "right", color: m.color ? m.color(val) : "var(--text)" }}>
                   {m.format(val)}
