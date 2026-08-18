@@ -10,6 +10,14 @@ interface AdRow {
   date_start: string; date_stop: string;
 }
 
+interface HotmartProduto { name: string; vendas: number; bruto: number; liquido: number; reembolsos: number }
+interface HotmartData {
+  vendas: number; bruto: number; taxas: number; liquido: number;
+  reembolsos: number; reembolsoValor: number;
+  porProduto: HotmartProduto[];
+  totalTransacoes: number;
+}
+
 function getAction(actions: Action[] | undefined, type: string): number {
   return Number(actions?.find(a => a.action_type === type)?.value || 0);
 }
@@ -39,15 +47,18 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [adData, setAdData] = useState<AdRow[]>([]);
   const [dailyData, setDailyData] = useState<AdRow[]>([]);
+  const [hotmart, setHotmart] = useState<HotmartData | null>(null);
+  const [hotmartError, setHotmartError] = useState("");
   const [lastUpdate, setLastUpdate] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [adRes, dailyRes] = await Promise.all([
+      const [adRes, dailyRes, hotRes] = await Promise.all([
         fetch(`/api/meta?since=${since}&until=${until}&level=ad`),
         fetch(`/api/meta?since=${since}&until=${until}&level=daily`),
+        fetch(`/api/hotmart?since=${since}&until=${until}`),
       ]);
       const adJson = await adRes.json();
       const dailyJson = await dailyRes.json();
@@ -55,6 +66,11 @@ export default function Dashboard() {
       if (dailyJson.error) throw new Error(dailyJson.error);
       setAdData(adJson.data || []);
       setDailyData(dailyJson.data || []);
+      try {
+        const hotJson = await hotRes.json();
+        if (hotJson.error) { setHotmart(null); setHotmartError(hotJson.error); }
+        else { setHotmart(hotJson); setHotmartError(""); }
+      } catch { setHotmart(null); setHotmartError("Erro ao carregar Hotmart"); }
       setLastUpdate(new Date().toLocaleString("pt-BR"));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erro ao carregar dados");
@@ -128,6 +144,55 @@ export default function Dashboard() {
           <HeroCard label="Investimento" value={fmtMoney(totalSpend)} sub={`${fmtMoney(totalSpend / days)}/dia`} color="purple" />
           <HeroCard label="Connect Rate" value={fmtPct(connectRate)} sub={connectRate < 80 ? "Abaixo de 80%" : "Saudavel"} color={connectRate < 80 ? "orange" : "green"} />
         </div>
+
+        {/* HOTMART */}
+        <SectionTitle text="Hotmart — Vendas Reais" />
+        {hotmartError && (
+          <div style={{ marginBottom: 20, padding: 14, background: "rgba(255,107,43,0.08)", border: "1px solid rgba(255,107,43,0.25)", borderRadius: 12, color: "var(--orange)", fontSize: 13 }}>
+            Hotmart: {hotmartError}
+          </div>
+        )}
+        {hotmart && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 20 }}>
+              <HeroCard label="Vendas Hotmart" value={hotmart.vendas.toString()} sub={`${hotmart.totalTransacoes} transacoes no periodo`} color="green" />
+              <HeroCard label="Faturamento Bruto" value={fmtMoney(hotmart.bruto)} sub="vendas aprovadas" color="blue" />
+              <HeroCard label="Faturamento Liquido" value={fmtMoney(hotmart.liquido)} sub={`taxas Hotmart: ${fmtMoney(hotmart.taxas)}`} color="purple" />
+              <HeroCard label="Reembolsos" value={hotmart.reembolsos.toString()} sub={hotmart.reembolsos > 0 ? `${fmtMoney(hotmart.reembolsoValor)} devolvidos` : "nenhum no periodo"} color={hotmart.reembolsos > 0 ? "orange" : "green"} />
+            </div>
+            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 24, marginBottom: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                <FooterStat label="ROAS Real" value={totalSpend > 0 ? `${fmt(hotmart.bruto / totalSpend)}x` : "—"} />
+                <FooterStat label="CPA Real" value={hotmart.vendas > 0 ? fmtMoney(totalSpend / hotmart.vendas) : "—"} />
+                <FooterStat label="Lucro s/ trafego" value={fmtMoney(hotmart.liquido - totalSpend)} />
+              </div>
+            </div>
+            {hotmart.porProduto.length > 0 && (
+              <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 24, marginBottom: 40, overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["Produto", "Vendas", "Bruto", "Liquido", "Reemb."].map(h => (
+                        <th key={h} style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--muted)", textAlign: h === "Produto" ? "left" : "right", padding: "0 8px 12px", borderBottom: "1px solid var(--border)" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hotmart.porProduto.map((p, i) => (
+                      <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <td style={{ padding: "10px 8px", fontSize: 12, fontWeight: 600, textAlign: "left", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</td>
+                        <td style={{ padding: "10px 8px", fontSize: 12, fontWeight: 700, textAlign: "right", color: "var(--green)" }}>{p.vendas}</td>
+                        <td style={{ padding: "10px 8px", fontSize: 12, fontWeight: 600, textAlign: "right" }}>{fmtMoney(p.bruto)}</td>
+                        <td style={{ padding: "10px 8px", fontSize: 12, textAlign: "right" }}>{fmtMoney(p.liquido)}</td>
+                        <td style={{ padding: "10px 8px", fontSize: 12, textAlign: "right", color: p.reembolsos > 0 ? "var(--orange)" : "var(--muted)" }}>{p.reembolsos || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
 
         {/* FUNNEL */}
         <SectionTitle text="Funil Completo" />
@@ -265,7 +330,7 @@ export default function Dashboard() {
 
         <div style={{ padding: "24px 0", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)" }}>
           <span><strong style={{ color: "var(--text)" }}>Franca Marketing</strong> · Dashboard ao vivo</span>
-          <span style={{ color: "rgba(255,255,255,0.2)" }}>Dados: Meta Ads Graph API</span>
+          <span style={{ color: "rgba(255,255,255,0.2)" }}>Dados: Meta Ads Graph API · Hotmart API</span>
         </div>
       </div>
     </div>
